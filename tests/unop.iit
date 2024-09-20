@@ -1,0 +1,3 @@
+$result: 194
+INTEGER RESULT
+RESULT <- INT 'a' + INT 'a'

@@ -1,0 +1,7 @@
+$result: 1
+LOGICAL A, B, C
+INTEGER RESULT
+A <- LG 0
+B <- LG 8
+C <- A OR B
+RESULT <- INT C

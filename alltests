@@ -1,0 +1,16 @@
+tests/add.iit:55
+tests/arith.iit:3
+tests/arithlog.iit:0
+tests/assign.iit:42
+tests/assign2.iit:7
+tests/fib.iit:8
+tests/if.iit:1
+tests/ifelse.iit:0
+tests/ifelsewhile.iit:0
+tests/log.iit:1
+tests/logcast.iit:1
+tests/stop.iit:50
+tests/synerr1.iit:E2
+tests/synerr2.iit:E2
+tests/synerr3.iit:E2
+tests/unop.iit:194

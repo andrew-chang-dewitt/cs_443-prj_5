@@ -1,0 +1,10 @@
+(executable
+ (public_name main)
+ (name main)
+ (libraries unix llvm iITRAN))
+
+(env
+  (_ (flags (:standard -warn-error -a -w -26-27-K))))
+
+(subdir opt)
+(subdir utils)
