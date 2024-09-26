@@ -2,9 +2,11 @@ open Arg
 
 let compile_ml = None
 let compile_iitran = Some Iitllvm.compile_prog
-let compile_c = None
-let optimize : (LLVM.Ast.prog -> LLVM.Ast.prog) option = None
+let compile_c = Some Cllvm.compile_prog
+let optimize: (LLVM.Ast.typ LLVM.Typecheck.LLVarmap.t -> LLVM.Ast.prog
+               -> LLVM.Ast.prog) option = None
 let codegen = None
+let print_alloc _ = ()
 
 let usage_msg = "./main [options] <input>"
 
@@ -15,6 +17,7 @@ let keepllvm = ref false
 let stopc = ref false
 let stopllvm = ref false
 let interpllvm = ref false
+let costllvm = ref false
 let nossa = ref false
 let opt = ref true
 let verbose = ref false
@@ -27,9 +30,11 @@ let specs =
    ("-stopc", Set stopc, "Stop after C code generation");
    ("-stopllvm", Set stopllvm, "Stop after LLVM generation");
    ("-interpllvm", Set interpllvm, "Run LLVM interpreter");
+   ("-cost", Set costllvm, "Print cost of LLVM code");
    ("-nossa", Set nossa, "Do not convert LLVM to SSA");
    ("-O0", Clear opt, "No optimizations");
    ("-O1", Set opt, "Standard optimizations");
+   ("-dumpalloc", Unit print_alloc, "Print register allocation");
   ]
 
 let () = parse specs (fun s -> input_file := s) usage_msg
@@ -44,7 +49,7 @@ let warn s =
 
 let verb s =
   if !verbose then
-    Printf.printf "%s\n" s
+    Printf.printf "%s\n%!" s
 
 let unimp s =
   Printf.fprintf stderr "main: %s not implemented" s;
@@ -52,6 +57,15 @@ let unimp s =
   
 (** Input Validation/Normalization **)
 let () = if !input_file = "" then cmd_error "No input file specified"
+
+let () =
+  if
+    String.lowercase_ascii (Filename.extension !input_file) = ".ll"
+    && !outputprefix = ""
+    && (!stopllvm || !keepllvm || codegen = None)
+  then cmd_error ("LLVM input file will be overwritten -- if this is intentional, you can override this message with -o "
+                  ^ (Filename.chop_extension !input_file))
+
 let () =
   if !outputprefix = "" then
     try
@@ -61,6 +75,10 @@ let () =
     try
       outputprefix := Filename.chop_extension !outputprefix
     with Invalid_argument _ -> ()
+
+let () =
+  if !costllvm && (not (!interpllvm)) then
+    cmd_error "-cost not allowed without -interpllvm"
 
 let is_none o =
   match o with
@@ -103,6 +121,51 @@ let (llvmprog, tds) =
          (verb "Start Compile IITRAN");
          (compile tprog, Varmap.empty)
       | None -> unimp "IITRAN front-end")
+  | ".c" ->
+     let cprog =
+       (verb "Start Parse C");
+       (match Frontc.parse_file (!input_file) stdout with
+        | Frontc.PARSING_ERROR -> exit 1
+        | Frontc.PARSING_OK prog ->
+           (verb "Start Desugar C");
+           (try
+              C.Desugar.desugar_file (!input_file) prog
+            with C.Desugar.Unsupported (s, (fl, ln)) ->
+              (Printf.eprintf "%s:%d -- Unsupported: %s\n"
+                 fl
+                 ln
+                 s;
+               exit 1)
+           )
+       )
+     in
+     (verb "Start Typecheck C");
+     let (ctx, prog) =
+       try C.Typecheck.typecheck_prog cprog
+       with C.Typecheck.TypeError (s, (fl, ln)) ->
+         (Printf.eprintf "%s:%d -- Type error: %s\n"
+            fl
+            ln
+            s;
+          exit 1)
+     in
+     (if is_none compile_c || !stopc || !keepc then
+        ((verb ("Output " ^ (!outputprefix) ^ ".c"));
+         let outch = open_out (!outputprefix ^ ".c") in
+         Cprint.print outch prog;
+         close_out outch));
+     if !stopc then exit 0;
+     (verb "Start Compile C");
+     (match compile_c with
+      | None -> unimp "C compiler"
+      | Some compile ->
+         compile (ctx, prog))
+  | ".ll" ->
+     (verb "Start Parse LLVM IR");
+     let ch = open_in !input_file in
+     let lexbuf = Lexing.from_channel ch in
+     let prog = LLVM.Parser.prog LLVM.Lexer.token lexbuf in
+     (prog, !LLVM.Lexer.structs)
   | _ -> cmd_error ("Don't know what to do with " ^ (!input_file))
 
 let () = if is_none codegen || !stopllvm || !keepllvm then
@@ -117,7 +180,9 @@ let () = if is_none codegen || !stopllvm || !keepllvm then
 let _ = verb "Start Typecheck LLVM"
 let ts =
   try
-    LLVM.Typecheck.typecheck_prog (llvmprog, tds)
+    LLVM.Typecheck.typecheck_prog
+      ~enforce_ssa:(!LLVM.Lexer.should_be_ssa)
+      (llvmprog, tds)
   with LLVM.Typecheck.TypeError (s, i) ->
     Format.fprintf Format.std_formatter "Type Error: %s\n  %a"
       s
@@ -126,16 +191,16 @@ let ts =
     exit 1
        
 let (llvm_ssa, tds) =
-  if !nossa then (llvmprog, tds)
+  if !nossa || !LLVM.Lexer.should_be_ssa then (llvmprog, tds)
   else
     (verb "Start SSA Conversion";
      LLVM.SSA.convert_prog_to_ssa ts (llvmprog, tds))
-
+  
 let llvm_opt =
   match (!opt, optimize) with
   | (true, Some optimize) ->
      (verb "Start Optimize";
-      optimize llvm_ssa)
+      optimize ts llvm_ssa)
   | _ -> llvm_ssa
     
 let () = if is_none codegen || !stopllvm || !keepllvm then
@@ -165,15 +230,14 @@ let () = if !interpllvm then
               in
               let (_, _, _, r) = LLVM.Interp.interp (llvm_opt, tds) globs
               in
-              Printf.printf "Result: %d\n" r
+              Printf.printf "Result: %d\n" r;
+              if !costllvm then
+                Printf.printf "Cost: %d\n" (!LLVM.Interp.cost)
             with LLVM.Interp.RuntimeError (s, (f, l)) ->
               Printf.eprintf "%s:%d -- Runtime error: %s\n"
                 f
                 l
                 s;
               exit 1)
-
-let () = if !stopllvm then exit 0
-
 
 let () = verb "Done."

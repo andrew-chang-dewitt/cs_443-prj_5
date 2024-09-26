@@ -10,4 +10,4 @@ clean:
 	dune clean
 
 test: main
-	./test.sh alltests
+	./test.sh p3tests
