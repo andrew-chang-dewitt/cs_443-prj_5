@@ -19,7 +19,11 @@ let compile_var (s, scope) =
 let btype = L.TInteger 1
 let ctype = L.TInteger 8
 let itype = L.TInteger 32
-                 
+
+(* Will probably be useful *)
+let word_size = Config.word_size
+let malloc = L.Global "malloc"
+
 let rec compile_typ ctx t =
   match t with
   | TVoid -> L.TVoid

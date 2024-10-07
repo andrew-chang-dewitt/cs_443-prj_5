@@ -67,7 +67,9 @@ type 'var inst_ =
 (* dest, struct type, struct ptr, indices *)
 | IGetElementPtr of 'var * typ * 'var * (typ * 'var value_) list
 | IAlloca of 'var * typ * int
+(* dest, type of value (not pointer), pointer *)
 | ILoad of 'var * typ * 'var
+(* type of value, value to store, pointer *)
 | IStore of typ * 'var value_ * 'var
 | IPhi of 'var * typ * (label * 'var value_) list
         
