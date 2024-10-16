@@ -1,0 +1,13 @@
+proj4_tests/arith.ml:8
+proj4_tests/curry.ml:3
+proj4_tests/fib.ml:8
+proj4_tests/fun.ml:4
+proj4_tests/funpair.ml:4
+proj4_tests/if.ml:1
+proj4_tests/let.ml:3
+proj4_tests/pair.ml:2
+proj4_tests/qsort.ml:1
+proj4_tests/scope.ml:4
+proj4_tests/simplelist.ml:1
+proj4_tests/tl.ml:2
+proj4_tests/uncurry.ml:8
