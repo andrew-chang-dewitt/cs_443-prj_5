@@ -1,6 +1,6 @@
 open Arg
 
-let compile_ml = None
+let compile_ml = Some Mlc.compile_prog
 let compile_iitran = Some Iitllvm.compile_prog
 let compile_c = Some Cllvm.compile_prog
 let optimize: (LLVM.Ast.typ LLVM.Typecheck.LLVarmap.t -> LLVM.Ast.prog
@@ -121,23 +121,47 @@ let (llvmprog, tds) =
          (verb "Start Compile IITRAN");
          (compile tprog, Varmap.empty)
       | None -> unimp "IITRAN front-end")
-  | ".c" ->
+  | ".ml" | ".c" ->
      let cprog =
-       (verb "Start Parse C");
-       (match Frontc.parse_file (!input_file) stdout with
-        | Frontc.PARSING_ERROR -> exit 1
-        | Frontc.PARSING_OK prog ->
-           (verb "Start Desugar C");
-           (try
-              C.Desugar.desugar_file (!input_file) prog
-            with C.Desugar.Unsupported (s, (fl, ln)) ->
-              (Printf.eprintf "%s:%d -- Unsupported: %s\n"
-                 fl
-                 ln
-                 s;
-               exit 1)
-           )
-       )
+       match ext with
+       | ".ml" ->
+          (match compile_ml with
+           | Some compile ->
+              (verb "Start Parse ML");
+              let ch = open_in !input_file in
+              let lexbuf = Lexing.from_channel ch in
+              let mlprog = ML.Parser.prog ML.Lexer.token lexbuf in
+              (verb "Start Typecheck ML");
+              let tprog =
+                try ML.Typecheck.infer_exp (Varmap.empty) mlprog
+                with ML.Typecheck.TypeError (s, (spos, epos)) ->
+                      (Printf.fprintf stderr "%s--%s: Type Error: %s"
+                         (string_of_pos spos)
+		         (string_of_pos epos)
+		         s;
+                       exit 1)
+              in
+              (verb "Start Compile ML");
+              (compile tprog, Varmap.empty)
+           | None -> unimp "ML compiler"
+          )
+       | ".c" ->
+          (verb "Start Parse C");
+          (match Frontc.parse_file (!input_file) stdout with
+           | Frontc.PARSING_ERROR -> exit 1
+           | Frontc.PARSING_OK prog ->
+              (verb "Start Desugar C");
+              (try
+                 C.Desugar.desugar_file (!input_file) prog
+               with C.Desugar.Unsupported (s, (fl, ln)) ->
+                 (Printf.eprintf "%s:%d -- Unsupported: %s\n"
+                    fl
+                    ln
+                     s;
+                  exit 1)
+              )
+          )
+       | _ -> failwith "shouldn't happen"
      in
      (verb "Start Typecheck C");
      let (ctx, prog) =
@@ -167,6 +191,7 @@ let (llvmprog, tds) =
      let prog = LLVM.Parser.prog LLVM.Lexer.token lexbuf in
      (prog, !LLVM.Lexer.structs)
   | _ -> cmd_error ("Don't know what to do with " ^ (!input_file))
+
 
 let () = if is_none codegen || !stopllvm || !keepllvm then
            (verb ("Output " ^ (!outputprefix) ^ ".ll");
