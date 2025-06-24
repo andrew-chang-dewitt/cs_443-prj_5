@@ -4,7 +4,7 @@ let compile_ml = Some Mlc.compile_prog
 let compile_iitran = Some Iitllvm.compile_prog
 let compile_c = Some Cllvm.compile_prog
 let optimize: (LLVM.Ast.typ LLVM.Typecheck.LLVarmap.t -> LLVM.Ast.prog
-               -> LLVM.Ast.prog) option = None
+               -> LLVM.Ast.prog) option = Some Opt.opt
 let codegen = None
 let print_alloc _ = ()
 
@@ -163,6 +163,13 @@ let (llvmprog, tds) =
           )
        | _ -> failwith "shouldn't happen"
      in
+     
+     (if is_none compile_c || !stopc || !keepc then
+        ((verb ("Output " ^ (!outputprefix) ^ ".c"));
+         let outch = open_out (!outputprefix ^ ".c") in
+         Cprint.print outch (fst cprog);
+         close_out outch));
+     if !stopc then exit 0;
      (verb "Start Typecheck C");
      let (ctx, prog) =
        try C.Typecheck.typecheck_prog cprog
@@ -173,12 +180,6 @@ let (llvmprog, tds) =
             s;
           exit 1)
      in
-     (if is_none compile_c || !stopc || !keepc then
-        ((verb ("Output " ^ (!outputprefix) ^ ".c"));
-         let outch = open_out (!outputprefix ^ ".c") in
-         Cprint.print outch prog;
-         close_out outch));
-     if !stopc then exit 0;
      (verb "Start Compile C");
      (match compile_c with
       | None -> unimp "C compiler"
@@ -191,7 +192,6 @@ let (llvmprog, tds) =
      let prog = LLVM.Parser.prog LLVM.Lexer.token lexbuf in
      (prog, !LLVM.Lexer.structs)
   | _ -> cmd_error ("Don't know what to do with " ^ (!input_file))
-
 
 let () = if is_none codegen || !stopllvm || !keepllvm then
            (verb ("Output " ^ (!outputprefix) ^ ".ll");
